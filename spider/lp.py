@@ -11,7 +11,7 @@ class LouPan(object):
     # around_price 周边价格
     # start_time 开盘时间
     # deliver_time 交房时间
-    def __init__(self, area, city, county, name, price, around_price, unit, href, start_time, deliver_time):
+    def __init__(self, area, city, county, name, unit, href, start_time, deliver_time, price='NULL', around_price='NULL'):
         self.area = area
         self.city = city
         self.county = county

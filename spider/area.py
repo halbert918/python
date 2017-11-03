@@ -1,13 +1,10 @@
-from lp import LouPan
-
-
+# -*- coding:utf-8 -*-
 class AreaNode(object):
 
-    def __init__(self, area, city, href, lps=[]):
+    def __init__(self, area, city, href):
         self.area = area
         self.city = city
         self.href = href
-        self.lps = lps
 
     def getArea(self):
         return self.area
@@ -25,4 +22,4 @@ class AreaNode(object):
         return self.href
 
     def setHref(self, href):
-        self.href = self
+        self.href = href
