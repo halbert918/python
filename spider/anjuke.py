@@ -4,10 +4,14 @@ from bs4 import BeautifulSoup
 import re
 import threadpool
 import time
-import pymysql
+from datetime import datetime, timedelta
+from time import sleep
+import sys
 from area import AreaNode
 from lp import LouPan
-import sys
+from db import dbutil
+import logger
+
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
@@ -27,11 +31,6 @@ class Anjuke(object):
 
     def getAreas(self, start_url):
         try:
-            # request = urllib2.Request(start_url, headers = self.headers)
-            # # 利用urlopen获取页面代码
-            # response = urllib2.urlopen(request)
-            # # 将页面转化为UTF-8编码
-            # pageData = response.read().decode('utf-8')
             pageData = self.get(start_url)
 
             bs = BeautifulSoup(pageData)
@@ -148,8 +147,6 @@ class Anjuke(object):
             lps.append(loupan)
 
         # 保存数据库
-        # for loupan1 in lps:
-        #     print loupan1.area, loupan1.city, loupan1.county, loupan1.name, loupan1.price, loupan1.around_price, loupan1.unit, loupan1.href
         if lps.__len__() > 0:
             self.save(lps)
         # 递归调用,处理后面页码
@@ -168,9 +165,9 @@ class Anjuke(object):
             # 将页面转化为UTF-8编码
             pageData = response.read().decode('utf-8')
         except BaseException, e:
-            print "地址:", url, ",连接失败;"
+            logger.error(">>请求地址:%s 连接失败", url)
             if hasattr(e, "reason"):
-                print "错误原因:", e.reason
+                logger.error(">>失败原因:", e.reason)
             return None
         return pageData
 
@@ -178,38 +175,29 @@ class Anjuke(object):
         pass
 
     def save(self, lps):
-        # 打开数据库连接
-        db = pymysql.connect(host='127.0.0.1', port=3306, user='root', passwd='root', database='spider', charset='utf8')
-
-        # 使用cursor()方法获取操作游标
-        cursor = db.cursor()
         sql = "INSERT INTO loupan (`area`, `city`, `county`, `name`, `price`, `around_price`, `unit`, `href`, `start_time`, `deliver_time`, `create_time`) VALUES"
         for lp in lps:
             if lp.price == "":
                 lp.price = "NULL"
             if lp.around_price == "":
                 lp.around_price = "NULL"
-            sql += "('" + lp.area + "','" + lp.city + "','" + lp.county + "','" + lp.name + "'," + lp.price + "," + lp.around_price + ",'" + lp.unit + "','" + lp.href + "','" + lp.start_time + "','" + lp.deliver_time + "',now(),"
+            sql += "('" + lp.area + "','" + lp.city + "','" + lp.county + "','" + lp.name + "'," + lp.price + "," + lp.around_price + ",'" + lp.unit + "','" + lp.href + "','" + lp.start_time + "','" + lp.deliver_time + "',now()),"
         sql = sql[:-1]
-        try:
-            cursor.execute(sql)
-            # 提交到数据库执行
-            db.commit()
-        except BaseException, e:
-            print e
-            print sql
-            # 如果发生错误则回滚
-            db.rollback()
-        finally:
-            db.close()
+
+        db = dbutil()
+        # 保存数据
+        db.save(sql)
 
     def dealAreaNode(self, node):
+        # 清除当前已经爬取过的数据，防止重爬
+        db = dbutil()
+        currentDate = time.strftime('%Y-%m-%d', time.localtime(time.time()))
+        delsql = "DELETE FROM loupan WHERE DATE_FORMAT(create_time, '%Y-%m-%d')=" + "'" + currentDate + "'"
+        db.delete(delsql)
         # 获取当前区县下的所有楼盘连接列表
         lp_hrefs = self.getCounty(node)
-        # if lp_hrefs.__len__() == 0:
-        #     return
         for lp_href in lp_hrefs:
-            print "解析区域楼盘", lp_href[0], lp_href[1], lp_href[2],  lp_href[3]
+            logger.info(">>解析当前区域楼盘信息:%s %s %s %s", lp_href[0], lp_href[1], lp_href[2],  lp_href[3])
             lps = self.getLouPan(lp_href, 1)
             # if lps.__len__() == 0:
             #     continue
@@ -217,30 +205,33 @@ class Anjuke(object):
             #     print loupan1.area, loupan1.city, loupan1.county, loupan1.name, loupan1.price, loupan1.around_price, loupan1.unit, loupan1.href
 
     def start(self):
+        # nodes = []
+        # node = AreaNode("中西部", "重庆", "https://cq.fang.anjuke.com")
+        # nodes.append(node)
+
         self.getAreas("https://cq.fang.anjuke.com/?from=navigation")
         nodes = self.areaNodes
         start_time = time.time()
         pool = threadpool.ThreadPool(1)
-        pool.poll()
         requests = threadpool.makeRequests(self.dealAreaNode, nodes)
         [pool.putRequest(req) for req in requests]
         pool.wait()
-        print 'get lp info spend %d second' % (time.time() - start_time)
-        # count = 0
-        # for node in self.areaNodes:
-        #     lp_hrefs = self.getCounty(node.getHref())
-        #     if lp_hrefs.__len__() == 0:
-        #         continue
-        #     for lp_href in lp_hrefs:
-        #         lps = self.getLouPan(lp_href, 1)
-        #         if lps.__len__() == 0:
-        #             continue
-        #         node.lps = lps
-        #         for loupan1 in node.lps:
-        #             print node.area, node.city, loupan1.county, loupan1.name, loupan1.price, loupan1.around_price, loupan1.unit, loupan1.href
-        #             count += 1
-        # print count
+        logger.info(">>当前爬取任务执行完成,使用时间:%s second", (time.time() - start_time))
+        # print 'get lp info spend %d second' % (time.time() - start_time)
+        # 重启定时任务---增加一天
+        nextSched = datetime.now() + timedelta(days=1)
+        self.scheduler(nextSched)
 
-ajk = Anjuke()
-ajk.start()
+    def scheduler(self, currentTime):
+        schedTime = currentTime.replace(hour=17, minute=40, second=0, microsecond=0)
+        logger.info(">>当前时间:%s 定时任务执行时间:%s", currentTime, schedTime)
+        deltaTime = schedTime - datetime.now()
+        sleeptime = deltaTime.total_seconds()
+        sleep(sleeptime)
+        logger.info(">>爬取任务开始执行...")
+        self.start()
+
+if __name__ == "__main__":
+    ajk = Anjuke()
+    ajk.scheduler(datetime.now())
 
